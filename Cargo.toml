@@ -1,0 +1,15 @@
+[package]
+name = "komobot"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+env_logger = "0.11"
+lazy_static = "1"
+log = "0.4"
+parking_lot = "0.12"
+poise = "0.6"
+reqwest = { version = "0.12", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
