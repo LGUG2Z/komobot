@@ -8,13 +8,13 @@ use std::time::Instant;
 
 use env_logger::Env;
 use parking_lot::RwLock;
-use poise::serenity_prelude as serenity;
 use poise::CreateReply;
+use poise::serenity_prelude as serenity;
+use reqwest::Client;
+use reqwest::header::AUTHORIZATION;
 use reqwest::header::HeaderMap;
 use reqwest::header::HeaderValue;
-use reqwest::header::AUTHORIZATION;
 use reqwest::header::USER_AGENT;
-use reqwest::Client;
 
 use crate::github::SponsorLevel;
 use crate::github::SponsorLists;
