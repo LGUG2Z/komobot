@@ -1,5 +1,6 @@
 #![warn(clippy::all)]
 mod github;
+mod license;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -46,6 +47,12 @@ lazy_static::lazy_static! {
             .build()
             .unwrap()
     };
+    static ref LICENSE_CLIENT: Client = {
+        Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .unwrap()
+    };
     static ref GITHUB_SPONSOR_DATA: Arc<RwLock<SponsorLists>> = {
         Arc::new(RwLock::new(SponsorLists::default()))
     };
@@ -59,6 +66,7 @@ const GITHUB_SPONSORS_TIER_1_ROLE_ID: &str = "1355669933446664284";
 const GITHUB_SPONSORS_TIER_2_ROLE_ID: &str = "1355670153722855474";
 const GITHUB_SPONSORS_TIER_3_ROLE_ID: &str = "1355670200154067125";
 const GITHUB_SPONSORS_ALUMNI_ROLE_ID: &str = "1355669718983250103";
+const LICENSE_HOLDER_ROLE_ID: &str = "1327709840914780172";
 const AUDIT_LOG_CHANNEL_ID: &str = "1355672655042183198";
 
 /// Request a GitHub sponsor role on the server
@@ -160,6 +168,104 @@ async fn github_sponsor(
     Ok(())
 }
 
+/// Request a license holder role on the server
+#[poise::command(slash_command)]
+async fn license_holder(
+    ctx: Context<'_>,
+    #[description = "Your email address from your Stripe purchase"] email: String,
+) -> Result<(), Error> {
+    log::info!("/license-holder: called by {}", ctx.author().name);
+
+    let user = ctx.author();
+    let member = ctx
+        .author_member()
+        .await
+        .ok_or("user is not a member of this server")?;
+
+    let channel = (*AUDIT_LOG_CHANNEL_ID).parse::<serenity::ChannelId>()?;
+
+    let status = license::validate_license(&LICENSE_CLIENT, &email).await;
+
+    match status {
+        license::LicenseStatus::ValidCommercial { platform } => {
+            log::info!(
+                "/license-holder: assigning License Holder role to {}",
+                ctx.author().name
+            );
+
+            let role_id = LICENSE_HOLDER_ROLE_ID.parse::<serenity::RoleId>()?;
+            member.add_role(ctx.http(), role_id).await?;
+
+            channel
+                .say(
+                    ctx.http(),
+                    format!(
+                        "license_holder: Discord user {} used email {} to self-assign the 'License Holder' role [validated via {}]",
+                        user.name, email, platform
+                    ),
+                )
+                .await?;
+
+            ctx.send(
+                CreateReply::default()
+                    .content("You have self-assigned the 'License Holder' role")
+                    .ephemeral(true),
+            )
+            .await?;
+
+            ctx.send(
+                CreateReply::default()
+                    .content("Use of this command is regularly audited")
+                    .ephemeral(true),
+            )
+            .await?;
+
+            log::info!(
+                "/license-holder: command for {} completed successfully",
+                ctx.author().name
+            );
+        }
+        license::LicenseStatus::StudentLicense => {
+            ctx.send(
+                CreateReply::default()
+                    .content("Your email is associated with a student license. This command is only for commercial license holders.")
+                    .ephemeral(true),
+            )
+            .await?;
+
+            channel
+                .say(
+                    ctx.http(),
+                    format!(
+                        "license_holder: Discord user {} used email {}, but this is a student license (not eligible for commercial role)",
+                        user.name, email
+                    ),
+                )
+                .await?;
+        }
+        license::LicenseStatus::Invalid => {
+            ctx.send(
+                CreateReply::default()
+                    .content("You were not recognized as a current or previous komorebi license holder. Please ensure you used the email address associated with your Stripe purchase.")
+                    .ephemeral(true),
+            )
+            .await?;
+
+            channel
+                .say(
+                    ctx.http(),
+                    format!(
+                        "license_holder: Discord user {} used email {}, but was not recognized as a current or previous license holder",
+                        user.name, email
+                    ),
+                )
+                .await?;
+        }
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("komobot=info")).init();
@@ -174,7 +280,7 @@ async fn main() -> anyhow::Result<()> {
 
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
-            commands: vec![github_sponsor()],
+            commands: vec![github_sponsor(), license_holder()],
             ..Default::default()
         })
         .setup(|ctx, _ready, framework| {
